@@ -19,6 +19,7 @@ Simulate shutdown:
     # Xem agent log graceful shutdown message
 """
 import os
+import sys
 import time
 import signal
 import logging
@@ -26,9 +27,19 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 import uvicorn
 from utils.mock_llm import ask
+
+# Mock Redis và DB để demo — thay bằng kết nối thật trong production
+class MockRedis:
+    def ping(self): return True
+
+class MockDB:
+    def execute(self, _sql): return True
+
+r = MockRedis()
+db = MockDB()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -91,9 +102,12 @@ def root():
 
 
 @app.post("/ask")
-async def ask_agent(question: str):
+async def ask_agent(request: dict):
     if not _is_ready:
         raise HTTPException(503, "Agent not ready")
+    question = request.get("question", "")
+    if not question:
+        raise HTTPException(422, "question required")
     return {"answer": ask(question)}
 
 
@@ -158,14 +172,13 @@ def ready():
     - Database/dependencies chưa connect
     """
     if not _is_ready:
-        raise HTTPException(
-            status_code=503,
-            detail="Agent not ready. Check back in a few seconds.",
-        )
-    return {
-        "ready": True,
-        "in_flight_requests": _in_flight_requests,
-    }
+        raise HTTPException(503, "Agent not ready. Check back in a few seconds.")
+    try:
+        r.ping()
+        db.execute("SELECT 1")
+        return {"status": "ready", "in_flight_requests": _in_flight_requests}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Dependency check failed: {str(e)}")
 
 
 # ──────────────────────────────────────────────────────────
@@ -173,14 +186,31 @@ def ready():
 # ──────────────────────────────────────────────────────────
 
 def handle_sigterm(signum, frame):
-    """
-    SIGTERM là signal platform gửi khi muốn dừng container.
-    Khác với SIGKILL (không thể catch được).
+    """Handle SIGTERM from container orchestrator"""
+    global _is_ready
 
-    uvicorn bắt SIGTERM tự động và gọi lifespan shutdown.
-    Hàm này để log thêm thông tin.
-    """
-    logger.info(f"Received signal {signum} — uvicorn will handle graceful shutdown")
+    # 1. Stop accepting new requests
+    _is_ready = False
+    logger.info(f"Signal {signum} received — stopped accepting new requests")
+
+    # 2. Finish current requests
+    timeout = 30
+    elapsed = 0
+    while _in_flight_requests > 0 and elapsed < timeout:
+        logger.info(f"Waiting for {_in_flight_requests} in-flight request(s)...")
+        time.sleep(1)
+        elapsed += 1
+
+    # 3. Close connections
+    logger.info("Closing connections...")
+    try:
+        r.ping()  # verify redis still alive before closing (mock: no-op)
+    except Exception:
+        pass
+
+    # 4. Exit
+    logger.info("Graceful shutdown complete. Exiting.")
+    sys.exit(0)
 
 
 signal.signal(signal.SIGTERM, handle_sigterm)
@@ -191,7 +221,7 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     logger.info(f"Starting agent on port {port}")
     uvicorn.run(
-        app,
+        "app:app",
         host="0.0.0.0",
         port=port,
         # ✅ Cho phép graceful shutdown
