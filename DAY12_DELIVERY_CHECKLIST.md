@@ -1,8 +1,8 @@
 #  Delivery Checklist — Day 12 Lab Submission
 
-> **Student Name:** _________________________  
-> **Student ID:** _________________________  
-> **Date:** _________________________
+> **Student Name:** Vương Hoàng Giang  
+> **Student ID:** 2A202600349  
+> **Date:** 17/04/2026
 
 ---
 
@@ -20,27 +20,89 @@ Create a file `MISSION_ANSWERS.md` with your answers to all exercises:
 ## Part 1: Localhost vs Production
 
 ### Exercise 1.1: Anti-patterns found
-1. [Your answer]
-2. [Your answer]
-...
+1. API key và DB password hardcode trong code
+2. Secret bị log ra console
+3. Không có authentication
+4. Không có rate limiting
+5. Không có config management
+5. Port hardcore 8000 không đọc từ PORT env
+6. host="localhost" không bind được trên cloud
+7. print() thay vì proper logging
+8. Không có heath check endpoint
+9. Không có error handling
+10. reload=True trong production
 
 ### Exercise 1.3: Comparison table
 | Feature | Develop | Production | Why Important? |
 |---------|---------|------------|----------------|
-| Config  | ...     | ...        | ...            |
-...
+| Config management | Hardcode trực tiếp trong code (`OPENAI_API_KEY`, `DATABASE_URL`) | Đọc từ environment variables | Cloud platform inject config qua env vars — hardcode không thể thay đổi giữa môi trường |
+| Logging | `print()` thô, không có level/timestamp | Structured JSON logging | Cloud platform (Railway, GCP) thu thập log theo format chuẩn — `print` không có level để filter/alert |
+| Health check endpoint | Không có `/health` | Có `/health` endpoint | Platform dùng health check để biết app sẵn sàng; thiếu → không route traffic, không tự restart khi crash |
+| Graceful shutdown | Không xử lý signal shutdown | Xử lý SIGTERM/shutdown event | Container bị kill đột ngột → request đang xử lý bị mất; graceful shutdown cho phép hoàn thành request trước khi dừng |
+| Host binding | `host="localhost"` — chỉ nhận traffic nội bộ |  `host="0.0.0.0"` — nhận traffic từ mọi interface | Trong container/cloud, app phải bind `0.0.0.0` mới nhận được request từ bên ngoài |
+| Port config | `port=8000` hardcode | `port=int(os.getenv("PORT", 8000))` | Railway/Render inject `$PORT` động — hardcode sẽ sai port, app không nhận được request |
 
 ## Part 2: Docker
 
 ### Exercise 2.1: Dockerfile questions
-1. Base image: [Your answer]
-2. Working directory: [Your answer]
-...
+1. Base image: python 3.11
+2. Working directory: là `/app` bên trong container
+3. Tại sao COPY requirements.txt trước? 
+- Docker build theo từng layer, mỗi lệnh = 2 layer, và layer được cache lại.
+- Nếu chỉ sửa app.py, layer A và B vẫn dùng cache. Chỉ rebuild layer C.
+- Nếu copy code trước, mỗi lần sửa code dù nhỏ sẽ pip install lại từ đầu.
+4. CMD vs ENTRYPOINT khác nhau thế nào? 
+- CND được dùng với lệnh mặc định khi start. Được dùng khi app có thể chạy nhiều cách.
+- ENTRYPOINT được dùng với cố định, luôn chạy. Được đùng khi app chỉ có 1 mục đích duy nhất.
 
 ### Exercise 2.3: Image size comparison
-- Develop: [X] MB
-- Production: [Y] MB
-- Difference: [Z]%
+- Develop: 424 MB
+- Production: 56.6 MB
+- Difference: 86.65%
+
+1. Stage 1 làm gì? Stage 1: Builder. Stage này để cài đặt dependencies không dùng để deploy. Stage này sẽ bị bỏ đi sau khi build xong.
+2. Stage 2 làm gì? Stage 2: Runtime. Stage này chỉ chứa thứ cần thiết để chạy app. 
+3. Tại sao image nhỏ hơn? Multi-stage build cho phép dùng image nặng để build, nhưng image cuối chỉ chứa kết quả trong quá trình build không cần compliler, không cần buil tools nên image nhỏ hơn.
+
+### Exercise 2.4: Docker Compose Stack
+
+**Architecture Diagram:**
+```
+                        Internet
+                           │
+                    port 80/443
+                           │
+                    ┌──────▼──────┐
+                    │    Nginx    │  ← Reverse proxy / Load balancer
+                    │  (alpine)   │    nginx.conf mount từ host
+                    └──────┬──────┘
+                           │ internal network
+              ┌────────────▼────────────┐
+              │         agent           │  ← FastAPI (port 8000)
+              │    (runtime stage)      │    KHÔNG expose ra ngoài trực tiếp
+              └────────┬────────────────┘
+                       │
+            ┌──────────┴──────────┐
+            │                     │
+     ┌──────▼──────┐      ┌───────▼──────┐
+     │    Redis     │      │    Qdrant    │
+     │  :6379       │      │   :6333      │
+     │  (alpine)    │      │  v1.9.0      │
+     │  256MB LRU   │      │  Vector DB   │
+     └─────────────┘      └─────────────┘
+            │                     │
+     redis_data vol        qdrant_data vol  ← persistent storage
+```
+
+**Services được start:** 4 services — nginx, agent, redis, qdrant
+
+**Cách communicate:**
+- Tất cả services nằm trong `internal` bridge network, giao tiếp qua tên service (DNS nội bộ)
+- Agent kết nối Redis qua `redis://redis:6379/0`
+- Agent kết nối Qdrant qua `http://qdrant:6333`
+- Chỉ Nginx được expose ra ngoài (port 80/443), agent không có port mapping trực tiếp
+- Startup order: Redis healthy → Qdrant healthy → Agent start → Nginx start
+
 
 ## Part 3: Cloud Deployment
 
