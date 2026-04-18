@@ -1,23 +1,28 @@
 services:
   - type: web
-    name: ai-agent-production
+    name: techshop-sales-advisor
     runtime: docker
+    dockerfilePath: ./Dockerfile
     region: singapore
-    plan: starter
+    plan: free
     healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: ENVIRONMENT
         value: production
+      - key: APP_NAME
+        value: TechShop Sales Advisor
       - key: APP_VERSION
         value: "1.0.0"
-      - key: OPENAI_API_KEY
-        sync: false
       - key: AGENT_API_KEY
         generateValue: true
-      - key: JWT_SECRET
-        generateValue: true
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
       - key: DAILY_BUDGET_USD
-        value: "5.0"
+        value: "1.0"
+      - key: GLOBAL_DAILY_BUDGET_USD
+        value: "10.0"
       - key: RATE_LIMIT_PER_MINUTE
-        value: "20"
+        value: "10"

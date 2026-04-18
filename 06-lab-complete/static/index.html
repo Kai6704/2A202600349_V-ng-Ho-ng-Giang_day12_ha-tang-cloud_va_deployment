@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TechShop — Sales Advisor</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; height: 100vh; display: flex; flex-direction: column; }
+
+  /* Header */
+  .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); color: white; padding: 16px 24px; display: flex; align-items: center; gap: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+  .header-logo { width: 40px; height: 40px; background: #e94560; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  .header-info h1 { font-size: 18px; font-weight: 700; }
+  .header-info p { font-size: 12px; opacity: 0.7; }
+  .status-dot { width: 8px; height: 8px; background: #4ade80; border-radius: 50%; margin-left: auto; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* Main layout */
+  .main { display: flex; flex: 1; overflow: hidden; max-width: 1200px; margin: 0 auto; width: 100%; padding: 20px; gap: 20px; }
+
+  /* Products panel */
+  .products { width: 280px; flex-shrink: 0; }
+  .products h2 { font-size: 14px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+  .product-card { background: white; border-radius: 12px; padding: 14px; margin-bottom: 10px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .product-card:hover { border-color: #0f3460; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+  .product-emoji { font-size: 28px; margin-bottom: 6px; }
+  .product-name { font-size: 13px; font-weight: 600; color: #1e293b; }
+  .product-price { font-size: 13px; color: #e94560; font-weight: 700; margin-top: 2px; }
+  .product-desc { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+
+  /* Chat panel */
+  .chat-panel { flex: 1; display: flex; flex-direction: column; background: white; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); overflow: hidden; }
+
+  /* API key bar */
+  .api-bar { padding: 10px 16px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; gap: 8px; align-items: center; }
+  .api-bar label { font-size: 12px; color: #64748b; white-space: nowrap; }
+  .api-bar input { flex: 1; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-family: monospace; }
+  .api-bar input:focus { outline: none; border-color: #0f3460; }
+  .btn-connect { padding: 6px 14px; background: #0f3460; color: white; border: none; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .btn-connect:hover { background: #1a4a8a; }
+
+  /* Messages */
+  .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  .message { display: flex; gap: 10px; max-width: 85%; }
+  .message.user { align-self: flex-end; flex-direction: row-reverse; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .avatar.bot { background: linear-gradient(135deg, #0f3460, #e94560); }
+  .avatar.user { background: #e2e8f0; }
+  .bubble { padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.5; }
+  .message.bot .bubble { background: #f1f5f9; color: #1e293b; border-bottom-left-radius: 4px; }
+  .message.user .bubble { background: #0f3460; color: white; border-bottom-right-radius: 4px; }
+  .message-meta { font-size: 10px; color: #94a3b8; margin-top: 3px; text-align: right; }
+  .message.bot .message-meta { text-align: left; }
+
+  /* Typing indicator */
+  .typing { display: none; align-items: center; gap: 10px; }
+  .typing.show { display: flex; }
+  .dots { display: flex; gap: 4px; padding: 10px 14px; background: #f1f5f9; border-radius: 16px; border-bottom-left-radius: 4px; }
+  .dot { width: 7px; height: 7px; background: #94a3b8; border-radius: 50%; animation: bounce 1.2s infinite; }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+
+  /* Input area */
+  .input-area { padding: 14px 16px; border-top: 1px solid #e2e8f0; display: flex; gap: 10px; align-items: flex-end; }
+  .input-wrap { flex: 1; border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; transition: border-color 0.2s; }
+  .input-wrap:focus-within { border-color: #0f3460; }
+  textarea { width: 100%; border: none; outline: none; padding: 10px 14px; font-size: 14px; font-family: inherit; resize: none; min-height: 44px; max-height: 120px; line-height: 1.5; }
+  .btn-send { width: 44px; height: 44px; background: #0f3460; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s; flex-shrink: 0; }
+  .btn-send:hover { background: #e94560; }
+  .btn-send:disabled { background: #cbd5e1; cursor: not-allowed; }
+  .btn-clear { padding: 8px 12px; background: transparent; color: #94a3b8; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 12px; cursor: pointer; }
+  .btn-clear:hover { background: #fee2e2; color: #ef4444; border-color: #fca5a5; }
+
+  /* Model badge */
+  .model-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
+  .model-ollama { background: #dcfce7; color: #16a34a; }
+  .model-mock { background: #fef9c3; color: #a16207; }
+
+  /* Welcome */
+  .welcome { text-align: center; padding: 30px 20px; color: #64748b; }
+  .welcome h3 { font-size: 18px; color: #1e293b; margin-bottom: 8px; }
+  .welcome p { font-size: 13px; line-height: 1.6; }
+  .quick-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
+  .quick-btn { padding: 8px 14px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 20px; font-size: 13px; cursor: pointer; color: #475569; transition: all 0.2s; }
+  .quick-btn:hover { background: #0f3460; color: white; border-color: #0f3460; }
+
+  .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; border-radius: 8px; font-size: 13px; color: white; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+  .toast.error { background: #ef4444; }
+  .toast.success { background: #22c55e; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">🛍️</div>
+  <div class="header-info">
+    <h1>TechShop Sales Advisor</h1>
+    <p>Tư vấn mua sắm công nghệ thông minh</p>
+  </div>
+  <div class="status-dot" id="statusDot"></div>
+</div>
+
+<div class="main">
+  <!-- Products -->
+  <div class="products">
+    <h2>Sản phẩm nổi bật</h2>
+    <div class="product-card" onclick="askAbout('MacBook Air M2')">
+      <div class="product-emoji">💻</div>
+      <div class="product-name">MacBook Air M2</div>
+      <div class="product-price">28.990.000đ</div>
+      <div class="product-desc">Chip M2, pin 18h, 256GB</div>
+    </div>
+    <div class="product-card" onclick="askAbout('Dell XPS 15')">
+      <div class="product-emoji">🖥️</div>
+      <div class="product-name">Dell XPS 15</div>
+      <div class="product-price">35.500.000đ</div>
+      <div class="product-desc">4K OLED, Core i9, RTX 4060</div>
+    </div>
+    <div class="product-card" onclick="askAbout('iPhone 15 Pro')">
+      <div class="product-emoji">📱</div>
+      <div class="product-name">iPhone 15 Pro</div>
+      <div class="product-price">27.990.000đ</div>
+      <div class="product-desc">A17 Pro, camera 48MP</div>
+    </div>
+    <div class="product-card" onclick="askAbout('Samsung Galaxy S24 Ultra')">
+      <div class="product-emoji">📲</div>
+      <div class="product-name">Galaxy S24 Ultra</div>
+      <div class="product-price">29.990.000đ</div>
+      <div class="product-desc">S Pen, zoom 100x, 200MP</div>
+    </div>
+    <div class="product-card" onclick="askAbout('AirPods Pro 2')">
+      <div class="product-emoji">🎧</div>
+      <div class="product-name">AirPods Pro 2</div>
+      <div class="product-price">6.490.000đ</div>
+      <div class="product-desc">ANC tốt nhất, H2 chip</div>
+    </div>
+  </div>
+
+  <!-- Chat -->
+  <div class="chat-panel">
+
+    <div class="messages" id="messages">
+      <div class="welcome">
+        <h3>👋 Xin chào! Tôi là Sales Advisor</h3>
+        <p>Tôi có thể giúp bạn tìm laptop, điện thoại và phụ kiện công nghệ phù hợp với nhu cầu và ngân sách của bạn.</p>
+        <div class="quick-btns">
+          <button class="quick-btn" onclick="sendQuick('Tôi cần tư vấn mua laptop để làm việc')">💼 Laptop làm việc</button>
+          <button class="quick-btn" onclick="sendQuick('Điện thoại tốt nhất tầm 20 triệu?')">📱 Điện thoại 20tr</button>
+          <button class="quick-btn" onclick="sendQuick('So sánh MacBook và Dell XPS')">⚖️ So sánh sản phẩm</button>
+          <button class="quick-btn" onclick="sendQuick('Tôi cần laptop cho sinh viên ngân sách 15 triệu')">🎓 Laptop sinh viên</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="typing" id="typing">
+      <div class="avatar bot">🤖</div>
+      <div class="dots">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <button class="btn-clear" onclick="clearChat()">🗑️ Xóa</button>
+      <div class="input-wrap">
+        <textarea id="input" placeholder="Nhập câu hỏi... (Enter để gửi, Shift+Enter xuống dòng)" rows="1"
+          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      </div>
+      <button class="btn-send" id="sendBtn" onclick="sendMessage()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let sessionId = null;
+let isLoading = false;
+
+const API_KEY = 'dev-key-change-me';
+function getApiKey() { return API_KEY; }
+
+function showToast(msg, type = 'error') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${type} show`;
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+async function checkHealth() {
+  try {
+    const res = await fetch('/health');
+    const data = await res.json();
+    showToast(`✅ Kết nối OK — LLM: ${data.llm} | Redis: ${data.redis}`, 'success');
+    document.getElementById('statusDot').style.background = '#4ade80';
+  } catch {
+    showToast('❌ Không kết nối được server');
+    document.getElementById('statusDot').style.background = '#ef4444';
+  }
+}
+
+function appendMessage(role, text, model = null) {
+  const container = document.getElementById('messages');
+  const welcome = container.querySelector('.welcome');
+  if (welcome) welcome.remove();
+
+  const div = document.createElement('div');
+  div.className = `message ${role}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = `avatar ${role}`;
+  avatar.textContent = role === 'bot' ? '🤖' : '👤';
+
+  const wrap = document.createElement('div');
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.innerHTML = text.replace(/\n/g, '<br>');
+
+  const meta = document.createElement('div');
+  meta.className = 'message-meta';
+  const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'});
+  if (model) {
+    const badge = model.includes('mock') ? 'model-mock' : 'model-ollama';
+    meta.innerHTML = `${time} <span class="model-badge ${badge}">${model}</span>`;
+  } else {
+    meta.textContent = time;
+  }
+
+  wrap.appendChild(bubble);
+  wrap.appendChild(meta);
+  div.appendChild(avatar);
+  div.appendChild(wrap);
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendMessage() {
+  const input = document.getElementById('input');
+  const question = input.value.trim();
+  if (!question || isLoading) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+  appendMessage('user', question);
+  setLoading(true);
+
+  try {
+    const apiKey = getApiKey();
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ question, session_id: sessionId }),
+    });
+
+    if (res.status === 401) { showToast('Lỗi xác thực server'); setLoading(false); return; }
+    if (res.status === 429) { showToast('Quá nhiều request. Thử lại sau 60 giây'); setLoading(false); return; }
+    if (res.status === 402) { showToast('Đã vượt ngân sách ngày'); setLoading(false); return; }
+    if (!res.ok) { showToast(`Lỗi server: ${res.status}`); setLoading(false); return; }
+
+    const data = await res.json();
+    sessionId = data.session_id;
+    appendMessage('bot', data.answer, data.model);
+  } catch (e) {
+    console.error('Chat error:', e);
+    showToast('Lỗi: ' + (e.message || 'Không kết nối được server'));
+  } finally {
+    setLoading(false);
+  }
+}
+
+function setLoading(v) {
+  isLoading = v;
+  document.getElementById('sendBtn').disabled = v;
+  document.getElementById('typing').className = `typing ${v ? 'show' : ''}`;
+  const messages = document.getElementById('messages');
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function sendQuick(text) {
+  document.getElementById('input').value = text;
+  sendMessage();
+}
+
+function askAbout(product) {
+  sendQuick(`Tư vấn cho tôi về ${product}`);
+}
+
+function clearChat() {
+  if (sessionId) {
+    const apiKey = getApiKey();
+    fetch(`/chat/${sessionId}`, { method: 'DELETE', headers: { 'X-API-Key': apiKey } });
+    sessionId = null;
+  }
+  const container = document.getElementById('messages');
+  container.innerHTML = `
+    <div class="welcome">
+      <h3>👋 Xin chào! Tôi là Sales Advisor</h3>
+      <p>Cuộc trò chuyện đã được xóa. Bắt đầu lại nào!</p>
+      <div class="quick-btns">
+        <button class="quick-btn" onclick="sendQuick('Tôi cần tư vấn mua laptop để làm việc')">💼 Laptop làm việc</button>
+        <button class="quick-btn" onclick="sendQuick('Điện thoại tốt nhất tầm 20 triệu?')">📱 Điện thoại 20tr</button>
+        <button class="quick-btn" onclick="sendQuick('So sánh MacBook và Dell XPS')">⚖️ So sánh sản phẩm</button>
+        <button class="quick-btn" onclick="sendQuick('Tôi cần laptop cho sinh viên ngân sách 15 triệu')">🎓 Laptop sinh viên</button>
+      </div>
+    </div>`;
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+checkHealth();
+</script>
+</body>
+</html>
