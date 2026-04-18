@@ -120,10 +120,59 @@ class ChatRequest(BaseModel):
     question: str
     session_id: str | None = None  # None = tạo session mới
 
+class AskRequest(BaseModel):
+    user_id: str
+    question: str
+
 
 # ──────────────────────────────────────────────────────────
 # Endpoints
 # ──────────────────────────────────────────────────────────
+
+@app.post("/ask")
+async def ask_stateless(body: AskRequest):
+    """
+    ✅ Stateless design — state lưu trong Redis, không phải memory.
+
+    Anti-pattern (KHÔNG làm):
+        conversation_history = {}  # in-memory, mất khi restart/scale
+        history = conversation_history.get(user_id, [])
+
+    Correct (đang dùng):
+        history = r.lrange(f"history:{user_id}", 0, -1)  # từ Redis
+    """
+    user_id = body.user_id
+
+    if USE_REDIS:
+        # ✅ Correct: lấy history từ Redis
+        raw = _redis.lrange(f"history:{user_id}", 0, -1)
+        history = [json.loads(m) for m in raw]
+    else:
+        # Fallback in-memory (not scalable)
+        history = _memory_store.get(f"history:{user_id}", [])
+
+    answer = ask(body.question)
+
+    # Lưu message mới vào Redis list
+    message = json.dumps({"role": "user", "content": body.question})
+    reply = json.dumps({"role": "assistant", "content": answer})
+
+    if USE_REDIS:
+        _redis.rpush(f"history:{user_id}", message, reply)
+        _redis.expire(f"history:{user_id}", 3600)  # TTL 1h
+    else:
+        history = _memory_store.setdefault(f"history:{user_id}", [])
+        history += [json.loads(message), json.loads(reply)]
+
+    return {
+        "user_id": user_id,
+        "question": body.question,
+        "answer": answer,
+        "history_length": len(history) + 2,
+        "served_by": INSTANCE_ID,
+        "storage": "redis" if USE_REDIS else "in-memory",
+    }
+
 
 @app.post("/chat")
 async def chat(body: ChatRequest):
@@ -217,4 +266,4 @@ def ready():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=True)

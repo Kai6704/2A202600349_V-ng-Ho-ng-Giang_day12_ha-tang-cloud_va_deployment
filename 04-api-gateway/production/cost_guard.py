@@ -126,3 +126,25 @@ class CostGuard:
 
 # Singleton
 cost_guard = CostGuard(daily_budget_usd=1.0, global_daily_budget_usd=10.0)
+
+
+if __name__ == "__main__":
+    print("=== Test Cost Guard ===\n")
+    guard = CostGuard(daily_budget_usd=0.001, global_daily_budget_usd=10.0)
+
+    for i in range(1, 6):
+        try:
+            guard.check_budget("user-123")
+            record = guard.record_usage("user-123", input_tokens=500, output_tokens=200)
+            usage = guard.get_usage("user-123")
+            print(f"Request {i}: ✅ OK — cost=${usage['cost_usd']:.6f} | remaining=${usage['budget_remaining_usd']:.6f} | used={usage['budget_used_pct']}%")
+        except HTTPException as e:
+            print(f"Request {i}: ❌ {e.status_code} — {e.detail}")
+
+    print("\n--- Global budget test ---")
+    global_guard = CostGuard(daily_budget_usd=1.0, global_daily_budget_usd=0.0001)
+    global_guard._global_cost = 0.0002
+    try:
+        global_guard.check_budget("user-abc")
+    except HTTPException as e:
+        print(f"❌ {e.status_code} — {e.detail}")

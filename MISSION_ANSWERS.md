@@ -103,25 +103,145 @@ Create a file `MISSION_ANSWERS.md` with your answers to all exercises:
 - Chỉ Nginx được expose ra ngoài (port 80/443), agent không có port mapping trực tiếp
 - Startup order: Redis healthy → Qdrant healthy → Agent start → Nginx start
 
-
 ## Part 3: Cloud Deployment
 
-### Exercise 3.1: Railway deployment
-- URL: https://your-app.railway.app
-- Screenshot: [Link to screenshot in repo]
+### Exercise 3.1: Render deployment
+- URL: https://day-12-5mjp.onrender.com
+- Screenshot: [Deploy screenshot](Screenshot%202026-04-17%20163721.png)
 
 ## Part 4: API Security
 
 ### Exercise 4.1-4.3: Test results
-[Paste your test outputs]
+
+**4.1 - Gọi API không có key → 401:**
+```
+curl http://localhost:8000/ask -X POST -H "Content-Type: application/json" -d '{"question": "Hello"}'
+```
+Output:
+```json
+{"detail":"Missing API key. Include header: X-API-Key: <your-key>"}
+```
+
+**4.2 - Gọi API với JWT token hợp lệ → 200:**
+```
+curl -X POST http://localhost:8000/ask -H "Authorization: Bearer eyJhbGci..." -H "Content-Type: application/json" -d '{"question": "what is docker?"}'
+```
+Output:
+```json
+{"question":"what is docker?","answer":"Container là cách đóng gói app để chạy ở mọi nơi. Build once, run anywhere!","usage":{"requests_remaining":9,"budget_remaining_usd":1.9e-05}}
+```
+
+**4.3 - Rate limiting (Sliding Window, 5 req/10s):**
+```
+python rate_limiter.py
+```
+Output:
+```
+=== Test Sliding Window Rate Limiter ===
+
+Request  1: ✅ OK  — remaining=4
+Request  2: ✅ OK  — remaining=3
+Request  3: ✅ OK  — remaining=2
+Request  4: ✅ OK  — remaining=1
+Request  5: ✅ OK  — remaining=0
+Request  6: ❌ 429 — Rate limit exceeded (retry after 10s)
+Request  7: ❌ 429 — Rate limit exceeded (retry after 10s)
+
+--- Admin bypass (100 req/min) ---
+Admin req 1: ✅ OK  — remaining=99
+Admin req 2: ✅ OK  — remaining=98
+Admin req 3: ✅ OK  — remaining=97
+```
+- Algorithm: Sliding Window Counter
+- User limit: 10 req/phút, Admin limit: 100 req/phút
+- Admin bypass: dùng instance `RateLimiter` riêng với `max_requests=100`
 
 ### Exercise 4.4: Cost guard implementation
-[Explain your approach]
+
+**Approach:** Dùng class `CostGuard` với in-memory tracking, kiểm tra budget trước mỗi request LLM.
+
+**Cơ chế hoạt động:**
+- Mỗi user có `UsageRecord` lưu số tokens dùng trong ngày (reset lúc 0h UTC)
+- Trước khi gọi LLM: `check_budget()` → raise `402` nếu user vượt $1/ngày, raise `503` nếu global vượt $10/ngày
+- Sau khi gọi LLM: `record_usage()` cộng dồn input/output tokens và tính chi phí theo giá GPT-4o-mini
+- Cảnh báo log khi user dùng ≥ 80% budget
+
+**Giá token áp dụng:**
+- Input: $0.15/1M tokens
+- Output: $0.60/1M tokens
+
+**Giới hạn:**
+- Per-user: $1.0/ngày → trả về `402 Payment Required`
+- Global: $10.0/ngày → trả về `503 Service Unavailable`
+
+**Hạn chế của in-memory:** Reset khi restart server. Production cần lưu vào Redis/DB để persist qua restart và scale nhiều instance.
 
 ## Part 5: Scaling & Reliability
 
 ### Exercise 5.1-5.5: Implementation notes
-[Your explanations and test results]
+
+**5.1 - Health Check & Readiness Probe:**
+- `/health` — Liveness probe: kiểm tra memory qua psutil, trả về `status: ok/degraded`
+- `/ready` — Readiness probe: kiểm tra Redis (`r.ping()`) và DB (`db.execute("SELECT 1")`), trả về 503 khi chưa sẵn sàng
+
+**5.2 - Graceful Shutdown (SIGTERM handler):**
+```python
+def handle_sigterm(signum, frame):
+    # 1. Stop accepting new requests (_is_ready = False)
+    # 2. Finish current requests (chờ _in_flight_requests == 0, timeout 30s)
+    # 3. Close connections
+    # 4. sys.exit(0)
+```
+
+**5.3 - Test graceful shutdown:**
+```bash
+python app.py &
+PID=$!
+curl http://localhost:8000/ask -X POST -H "Content-Type: application/json" -d '{"question": "Long task"}' &
+kill -TERM $PID
+```
+Output:
+```
+Agent starting up...
+✅ Agent is ready!
+Application startup complete.
+🔄 Graceful shutdown initiated...
+✅ Shutdown complete
+Application shutdown complete.
+```
+
+**5.4 - In-flight request tracking:**
+- Middleware `track_requests` đếm số request đang xử lý qua biến `_in_flight_requests`
+- Graceful shutdown chờ counter về 0 trước khi exit
+
+**5.5 - Stateless scaling test (docker compose up --scale agent=3):**
+```
+python test_stateless.py
+```
+Output:
+```
+Session ID: bb63031e-097d-43a0-8c1e-0f95709e4ab8
+
+Request 1: [instance-8fe463]  Q: What is Docker?
+Request 2: [instance-5e7cf1]  Q: Why do we need containers?
+Request 3: [instance-00cafb]  Q: What is Kubernetes?
+Request 4: [instance-8fe463]  Q: How does load balancing work?
+Request 5: [instance-5e7cf1]  Q: What is Redis used for?
+
+Total requests: 5
+Instances used: {'instance-00cafb', 'instance-8fe463', 'instance-5e7cf1'}
+✅ All requests served despite different instances!
+
+Total messages: 10
+✅ Session history preserved across all instances via Redis!
+```
+- 5 requests được phân phối qua **3 instance khác nhau** (load balancing hoạt động)
+- Session history có đủ **10 messages** (5 user + 5 assistant) dù mỗi request đến instance khác nhau
+- **Redis** là chìa khóa: tất cả instance đọc/ghi chung 1 Redis → stateless thành công
+
+**Vấn đề gặp phải:**
+- Port 8000 bị chiếm khi chạy nhiều app → dùng `PORT=8001 python app.py`
+- `kill -TERM $PID` trên Windows Git Bash không hoạt động → dùng `taskkill /PID X /F`
 ```
 
 ---
@@ -170,32 +290,34 @@ Create a file `DEPLOYMENT.md` with your deployed service information:
 # Deployment Information
 
 ## Public URL
-https://your-agent.railway.app
+https://twoa202600349-v-ng-ho-ng-giang-day12-ha.onrender.com/
 
 ## Platform
-Railway / Render / Cloud Run
+Render
 
 ## Test Commands
 
 ### Health Check
 ```bash
-curl https://your-agent.railway.app/health
-# Expected: {"status": "ok"}
+curl https://twoa202600349-v-ng-ho-ng-giang-day12-ha.onrender.com/health
+# Result: {"status":"ok","version":"1.0.0","environment":"development","redis":false,"llm":"ollama/mock"}
 ```
 
 ### API Test (with authentication)
 ```bash
-curl -X POST https://your-agent.railway.app/ask \
-  -H "X-API-Key: YOUR_KEY" \
+curl -X POST https://twoa202600349-v-ng-ho-ng-giang-day12-ha.onrender.com/chat \
+  -H "X-API-Key: YOUR_AGENT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"user_id": "test", "question": "Hello"}'
+  -d '{"question": "Tư vấn MacBook Air M2"}'
 ```
 
 ## Environment Variables Set
-- PORT
-- REDIS_URL
-- AGENT_API_KEY
-- LOG_LEVEL
+- AGENT_API_KEY (auto-generated by Render)
+- GROQ_API_KEY
+- GROQ_MODEL
+- ENVIRONMENT
+- RATE_LIMIT_PER_MINUTE
+- DAILY_BUDGET_USD
 
 ## Screenshots
 - [Deployment dashboard](screenshots/dashboard.png)

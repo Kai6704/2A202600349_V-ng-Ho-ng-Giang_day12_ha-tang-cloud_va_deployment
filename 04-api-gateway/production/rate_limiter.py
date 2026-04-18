@@ -85,3 +85,22 @@ class RateLimiter:
 # Singleton instances cho các tiers khác nhau
 rate_limiter_user = RateLimiter(max_requests=10, window_seconds=60)   # User: 10 req/phút
 rate_limiter_admin = RateLimiter(max_requests=100, window_seconds=60)  # Admin: 100 req/phút
+
+
+if __name__ == "__main__":
+    print("=== Test Sliding Window Rate Limiter ===\n")
+    limiter = RateLimiter(max_requests=5, window_seconds=10)
+
+    for i in range(1, 8):
+        try:
+            result = limiter.check("test-user")
+            print(f"Request {i:2d}: ✅ OK  — remaining={result['remaining']}")
+        except HTTPException as e:
+            detail = e.detail
+            print(f"Request {i:2d}: ❌ 429 — {detail['error']} (retry after {detail['retry_after_seconds']}s)")
+
+    print("\n--- Admin bypass (100 req/min) ---")
+    admin_limiter = RateLimiter(max_requests=100, window_seconds=60)
+    for i in range(1, 4):
+        result = admin_limiter.check("admin-user")
+        print(f"Admin req {i}: ✅ OK  — remaining={result['remaining']}")
